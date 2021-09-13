@@ -20,7 +20,7 @@ library(ggsci)
 library(vcd)
 
 setwd("~/GitHub/wisdom-summit-2021")
-raw <- read.csv('2021 Wisdom Summit_August 27, 2021_21.22.csv')
+raw <- read.csv('Wisdom_Summit_Sept_21_2021.csv')
 culture<-read.csv('culture.csv')
 morality<-read.csv('morality.csv')
 total<-raw %>% left_join(culture) %>% left_join(morality)
@@ -388,7 +388,7 @@ geom_point(size=3) +
   scale_x_continuous(   # Add categories to axis
     breaks = culture.by.group$order,
     labels = culture.by.group$Item)+theme_minimal(base_size = 14) +theme(legend.position="none")+
-scale_color_aaas()+theme(axis.text.x = element_text(angle=90, vjust=0.5))
+scale_color_aaas()+theme(axis.text.x = element_text(angle=90, vjust=0.5))+labs(x="")+ coord_flip()
 
 
 ```
@@ -438,7 +438,7 @@ geom_point(size=3) +
   scale_x_continuous(   # Add categories to axis
     breaks = culture.by.group.ranked$order,
     labels = culture.by.group.ranked$Item)+theme_minimal(base_size = 14) +theme(legend.position="none")+
-scale_color_aaas()+theme(axis.text.x = element_text(angle=90, vjust=0.5))+labs(y="Average Rank (1-18)",x="")
+scale_color_aaas()+theme(axis.text.x = element_text(angle=90, vjust=0.5))+labs(y="Average Rank (1-18)",x="")+ coord_flip()
 
 ```
 
