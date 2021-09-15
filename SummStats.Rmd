@@ -35,7 +35,8 @@ total$Duration <- as.numeric(raw$Duration)
 total <- total %>% 
   mutate(filter = ifelse(str_detect(wisdom_culture, "useless|1"), 1, 0)) %>% 
   mutate(filter = ifelse(!is.na(country) & str_detect(country, "TEST"), 1, filter)) %>% 
-  mutate(filter = ifelse(Duration < 45, 1, filter)) #if they spent less than 45 seconds, remove them
+    mutate(filter = ifelse(!is.na(country) & str_detect(country, "test"), 1, filter)) %>% 
+  mutate(filter = ifelse(Duration < 30, 1, filter)) #if they spent less than 30 seconds, remove them
 total$filter <- as.factor(total$filter)
 # summary(raw$filter)
 data <- total %>% filter(filter==0) 
@@ -58,6 +59,9 @@ data <- data %>%
   mutate(country = ifelse(country =="canada", "Canada", country)) %>%
   mutate(country = ifelse(country == "HK", "Hong Kong", country)) %>%
   mutate(country = ifelse(country == "Russian Federation", "Russia", country)) %>% 
+  mutate(country = ifelse(country == "Nederland", "Netherlands", country)) %>%
+  mutate(country = ifelse(country == "philippines", "Philippines", country)) %>%
+  mutate(country = ifelse(country == "Hong Kong S.A.R. / China", "Hong Kong", country)) %>%
   mutate(country = ifelse(country == "Viet Nam", "Vietnam", country)) %>%
   mutate(country = ifelse(country == "turkey", "Turkey", country))
 
@@ -69,26 +73,90 @@ cols <- c("country","CountryCode","position","position2")
 data[,cols] <- lapply(data[,cols],as.factor)
 ```
 
-### PART 1 - Morality / Wisdom
-
-#### Forced-choice responses
-
 ```{r}
 #Subset Data & No Of Answers ---- 
 data <- data %>% 
   mutate_all(na_if,"")
 
-WisMor <- data %>% 
+data.filter<-data %>% 
     filter(!is.na(morality_wis_analogy) | 
+           !is.na(moral_wis_comments) | 
            !is.na(wis_psych_char) | 
            !is.na(model_agreement) | 
            !is.na(model_disagree) | 
-           !is.na(wisdom_culture)) %>%
-  select(CountryCode,Progress, Duration,position2,ResponseId,field,prior_research:education,
+           !is.na(wisdom_culture)|
+             !is.na(comments)) %>%
+  select(CountryCode,Progress, Duration,position,position2,ResponseId,field,country,institution_type,prior_research:education,
 moral_to_wis_agree, wis_to_moral_agree, morality_wis_analogy,wis_psych_char,wisdomModelFamiliar) %>% 
   rename(Position = position2, Education = education, Field = field) 
+```
 
-WisMor <- WisMor %>% 
+# demographics
+```{r}
+#country
+data.filter%>%
+  group_by(country) %>%
+  summarise(tally = n()) %>% 
+  arrange(desc(tally)) 
+ggplot(data.filter, aes(x = country)) + geom_histogram(stat="count")+coord_flip()
+
+#position / level
+data.filter%>%
+  group_by(position) %>%
+  summarise(tally = n()) %>% 
+  arrange(desc(tally)) 
+ggplot(data.filter, aes(x = position)) + geom_histogram(stat="count")+coord_flip()
+
+table(data.filter$Position)
+#field
+data.filter%>%
+  group_by(Field) %>%
+  summarise(tally = n()) %>% 
+  arrange(desc(tally)) 
+# a bit complicated - multiple fields. Need to review and create categories for wisdom, social, moral, personality, clinical, cognitive
+
+
+data.field <- data.filter %>% 
+  mutate(Social = ifelse(str_detect(Field, "Social Psychology"), 1, 0))%>% 
+  mutate(Moral_Psychology = ifelse(str_detect(Field, "Moral Psychology"), 1, 0))%>% 
+  mutate(Wisdom = ifelse(str_detect(Field, "Wisdom"), 1, 0))%>% 
+  mutate(Clinical = ifelse(str_detect(Field, "Clinical"), 1, 0))%>% 
+  mutate(Personality  = ifelse(str_detect(Field, "Personality"), 1, 0))%>% 
+  mutate(Education = ifelse(str_detect(Field, "Education"), 1, 0))%>% 
+  mutate(Developmental = ifelse(str_detect(Field, "Developmental"), 1, 0))%>% 
+  mutate(CogSci = ifelse(str_detect(Field, "Cognitive Science"), 1, 0))%>% 
+  mutate(Cognitive = ifelse(str_detect(Field, "Cognitive Psychology"), 1, 0))%>% 
+  mutate(Quantitative = ifelse(str_detect(Field, "Quantitative Psychology"), 1, 0))%>% 
+  mutate(Evolutionary = ifelse(str_detect(Field, "Evolutionary Psychology"), 1, 0))%>% 
+  mutate(Virtue = ifelse(str_detect(Field, "Virtue"), 1, 0))%>% 
+  mutate(Moral_philosophy = ifelse(str_detect(Field, "Moral philosophy"), 1, 0))
+
+prop.table(table(data.field$Social))
+prop.table(table(data.field$Moral_Psychology))
+prop.table(table(data.field$Wisdom))
+prop.table(table(data.field$Clinical))
+prop.table(table(data.field$Personality))
+prop.table(table(data.field$Education))
+prop.table(table(data.field$Developmental))
+prop.table(table(data.field$CogSci))
+prop.table(table(data.field$Cognitive))
+prop.table(table(data.field$Quantitative))
+prop.table(table(data.field$Evolutionary))
+prop.table(table(data.field$Moral_philosophy))
+prop.table(table(data.field$Virtue))
+
+  
+
+
+```
+
+### PART 1 - Morality / Wisdom
+
+#### Forced-choice responses
+
+```{r}
+
+WisMor <- data.filter %>% 
   mutate(M2W_Relevant = ifelse(str_detect(moral_to_wis_agree, "relevant"), 1, 0))%>% 
   mutate(M2W_Precursor = ifelse(str_detect(moral_to_wis_agree, "precursor"), 1, 0))%>% 
   mutate(M2W_Necessary = ifelse(str_detect(moral_to_wis_agree, "necessary"), 1, 0))%>% 
@@ -244,6 +312,49 @@ Moral.open.Summary %>% arrange(Percent) %>%
     coord_flip()+scale_color_aaas()+scale_x_discrete(labels=labels, name="")
 
 ```
+
+#### PArt 1.5 moral intention vs. action and wisdom
+
+```{r}
+
+Moral.int <- data %>% 
+    filter(!is.na(Intention_FINAL)) %>%
+    select(CountryCode,Progress, Duration,position2,ResponseId,field,prior_research:education,moral_wis_comments,morality_wis_analogy,wis_psych_char,
+         FRMW_FINAL,  FRWM_FINAL, FRJF_FINAL,TRMW_FINAL,TRWM_FINAL,TRHOC_FINAL,PR_FINAL,DR_FINAL,PROCESS.MECH_FINAL,PROCESS.LIFE_FINAL,CONSTRUCT_FINAL,Intention_FINAL, Action_FINAL, MDW_FINAL) %>% 
+    rename(Position = position2, Education = education, Field = field)
+
+pd <- position_dodge(0.7) # move them .07 to the left and right
+labels.INT<-c(
+  Intention_FINAL = "Wisdom Depends\non Moral Intentions",
+  Action_FINAL = "Wisdom Depends\non Moral Actions",
+  MDW_FINAL = "Morality Depands on WIsdom")
+
+#how many responses?
+length(Moral.int$Intention_FINAL)
+Moral.int.long<-Moral.int %>% pivot_longer(Intention_FINAL:MDW_FINAL,names_to="Category",values_to="Score")
+
+Moral.int.Summary<-Moral.int.long %>%
+  group_by(Category) %>%
+  summarise(Prop = mean(Score, na.rm=T)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Percent) 
+
+
+Moral.int.Summary %>% arrange(Percent) %>% 
+  mutate(Category=factor(Category, levels=Category)) %>% 
+  ggplot(aes(x=Category, y=Percent)) + 
+  geom_point(col="tomato", size=3) +   # Draw points
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=min(Percent), 
+                   yend=max(Percent)), 
+               linetype="dashed", 
+               size=0.1) + theme_minimal()+  # Draw dashed lines
+    coord_flip()+scale_color_aaas()+scale_x_discrete(labels=labels.INT, name="")
+
+
+
+```
+
 
 ### PART 2 - Universals 
 
@@ -473,7 +584,7 @@ Culture.open.Summary<-Culture.open.long %>%
 Culture.open.Summary %>% arrange(Percent) %>% 
   mutate(Category=factor(Category, levels=Category)) %>% 
   ggplot(aes(x=Category, y=Percent)) + 
-  geom_point(col="tomato2", size=3) +   # Draw points
+  geom_point(col="blue", size=3) +   # Draw points
   geom_segment(aes(x=Category, 
                    xend=Category, 
                    y=min(Percent), 
@@ -489,12 +600,15 @@ Culture.open.Summary %>% arrange(Percent) %>%
 ```{r}
 
 CWM.open <- data %>% 
-   filter(!is.na(wisdomModelFamiliar) | !is.na(PMC_FINAL) |!is.na(wisdom_culture)) %>%
+   filter(!is.na(wisdomModelFamiliar) | !is.na(PMC_FINAL) ) %>%
     select(CountryCode,Progress, Duration,position2,ResponseId,field,prior_research:education,wisdomModelFamiliar,
            PMC_FINAL,Morals_Prosocial_FINAL,Integration.of.Morals_PMC_FINAL,
            morality_irrelevant_FINAL,lacks_moral_behaviour_FINAL,Variable_process_engagement_FINAL,
            Ignores_emotion_FINAL,Needs_behaviour_FINAL,no_contemplative_traditions_FINAL) %>% 
     rename(Position = position2, Education = education, Field = field)
+
+table(CWM.open$wisdomModelFamiliar)
+prop.table(table(CWM.open$wisdomModelFamiliar))
 
 pd <- position_dodge(0.7) # move them .07 to the left and right
 labels.CWM<-c(
@@ -521,7 +635,7 @@ CWM.open.Summary<-CWM.open.long %>%
 CWM.open.Summary %>% arrange(Percent) %>% 
   mutate(Category=factor(Category, levels=Category)) %>% 
   ggplot(aes(x=Category, y=Percent)) + 
-  geom_point(col="tomato2", size=3) +   # Draw points
+  geom_point( size=3) +   # Draw points
   geom_segment(aes(x=Category, 
                    xend=Category, 
                    y=min(Percent), 
