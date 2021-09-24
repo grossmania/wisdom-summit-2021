@@ -1,8 +1,10 @@
 ---
 title: "Wisdom Summit Data"
-subtitle: "Summary Statistics"
-output: html_notebook
-editor_options: 
+subtitle: Summary Statistics
+output:
+  html_document:
+    df_print: paged
+editor_options:
   chunk_output_type: inline
 ---
 #### Setting Up 
@@ -23,7 +25,7 @@ library(emmeans)
 library(jtools)
 library(sjPlot)
 library(car)
-setwd("~/GitHub/wisdom-summit-2021")
+setwd("~/GitHub/wisdom-summit-2021/presummit survey")
 raw <- read.csv('Wisdom_Summit_Sept_21_2021.csv')
 culture<-read.csv('culture.csv')
 morality<-read.csv('morality.csv')
