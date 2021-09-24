@@ -18,7 +18,11 @@ library(ggplot2)
 library(kableExtra)
 library(ggsci)
 library(vcd)
-
+library(lme4)
+library(emmeans)
+library(jtools)
+library(sjPlot)
+library(car)
 setwd("~/GitHub/wisdom-summit-2021")
 raw <- read.csv('Wisdom_Summit_Sept_21_2021.csv')
 culture<-read.csv('culture.csv')
@@ -31,7 +35,7 @@ total<-raw %>% left_join(culture) %>% left_join(morality)
 #Adding Variables ---- 
 total <- total %>% filter(!grepl("progress",Progress, ignore.case = TRUE)) %>% 
   rename(Duration=Duration..in.seconds.)
-total$Duration <- as.numeric(raw$Duration)
+total$Duration <- as.numeric(total$Duration)
 total <- total %>% 
   mutate(filter = ifelse(str_detect(wisdom_culture, "useless|1"), 1, 0)) %>% 
   mutate(filter = ifelse(!is.na(country) & str_detect(country, "TEST"), 1, filter)) %>% 
@@ -57,11 +61,12 @@ data <- data %>%
   mutate(country = ifelse(country =="BG", "Bulgaria", country)) %>% 
   mutate(country = ifelse(country =="CHINA", "China", country)) %>%
   mutate(country = ifelse(country =="canada", "Canada", country)) %>%
-  mutate(country = ifelse(country == "HK", "Hong Kong", country)) %>%
+  mutate(country = ifelse(country == "HK", "China", country)) %>%
+  mutate(country = ifelse(country == "Hong Kong", "China", country)) %>%
   mutate(country = ifelse(country == "Russian Federation", "Russia", country)) %>% 
   mutate(country = ifelse(country == "Nederland", "Netherlands", country)) %>%
   mutate(country = ifelse(country == "philippines", "Philippines", country)) %>%
-  mutate(country = ifelse(country == "Hong Kong S.A.R. / China", "Hong Kong", country)) %>%
+  mutate(country = ifelse(country == "Hong Kong S.A.R. / China", "China", country)) %>%
   mutate(country = ifelse(country == "Viet Nam", "Vietnam", country)) %>%
   mutate(country = ifelse(country == "turkey", "Turkey", country))
 
@@ -78,6 +83,21 @@ data[,cols] <- lapply(data[,cols],as.factor)
 data <- data %>% 
   mutate_all(na_if,"")
 
+data <- data %>% 
+  mutate(Social = ifelse(str_detect(field, "Social Psychology"), 1, 0))%>% 
+  mutate(Moral_Psychology = ifelse(str_detect(field, "Moral Psychology"), 1, 0))%>% 
+  mutate(Wisdom = ifelse(str_detect(field, "Wisdom"), 1, 0))%>% 
+  mutate(Clinical = ifelse(str_detect(field, "Clinical"), 1, 0))%>% 
+  mutate(Personality  = ifelse(str_detect(field, "Personality"), 1, 0))%>% 
+  mutate(Education = ifelse(str_detect(field, "Education"), 1, 0))%>% 
+  mutate(Developmental = ifelse(str_detect(field, "Developmental"), 1, 0))%>% 
+  mutate(CogSci = ifelse(str_detect(field, "Cognitive Science"), 1, 0))%>% 
+  mutate(Cognitive = ifelse(str_detect(field, "Cognitive Psychology"), 1, 0))%>% 
+  mutate(Quantitative = ifelse(str_detect(field, "Quantitative Psychology"), 1, 0))%>% 
+  mutate(Evolutionary = ifelse(str_detect(field, "Evolutionary Psychology"), 1, 0))%>% 
+  mutate(Moral_philosophy = ifelse(str_detect(field, "Moral philosophy"), 1, ifelse(str_detect(field, "Virtue"), 1, 0)))%>%
+           mutate(Virtue = ifelse(str_detect(field, "Virtue"), 1, 0))
+
 data.filter<-data %>% 
     filter(!is.na(morality_wis_analogy) | 
            !is.na(moral_wis_comments) | 
@@ -86,25 +106,36 @@ data.filter<-data %>%
            !is.na(model_disagree) | 
            !is.na(wisdom_culture)|
              !is.na(comments)) %>%
-  select(CountryCode,Progress, Duration,position,position2,ResponseId,field,country,institution_type,prior_research:education,
-moral_to_wis_agree, wis_to_moral_agree, morality_wis_analogy,wis_psych_char,wisdomModelFamiliar) %>% 
-  rename(Position = position2, Education = education, Field = field) 
+  rename(Position = position2, Field = field) 
 ```
 
 # demographics
 ```{r}
+library(forcats)
+
 #country
 data.filter%>%
   group_by(country) %>%
   summarise(tally = n()) %>% 
-  arrange(desc(tally)) 
-ggplot(data.filter, aes(x = country)) + geom_histogram(stat="count")+coord_flip()
+  arrange(desc(tally)) %>% 
+   mutate(country = fct_reorder(country, tally)) %>%
+  ggplot(aes(x=country, y=tally)) +
+    geom_bar(stat="identity", alpha=.6, width=.4) +
+    coord_flip() +labs(x="",y="Count") +theme_minimal()
+
+data.filter %>%
+  ggplot(aes(x = country)) + geom_histogram(stat="count")+coord_flip()
 
 #position / level
 data.filter%>%
   group_by(position) %>%
   summarise(tally = n()) %>% 
-  arrange(desc(tally)) 
+  arrange(desc(tally))  %>%     mutate(position = fct_reorder(position, tally)) %>%
+ggplot(aes(x=position, y=tally)) +
+    geom_bar(stat="identity", alpha=.6, width=.4) +
+    coord_flip() +labs(x="",y="Count") +theme_minimal()
+
+
 ggplot(data.filter, aes(x = position)) + geom_histogram(stat="count")+coord_flip()
 
 table(data.filter$Position)
@@ -113,40 +144,21 @@ data.filter%>%
   group_by(Field) %>%
   summarise(tally = n()) %>% 
   arrange(desc(tally)) 
-# a bit complicated - multiple fields. Need to review and create categories for wisdom, social, moral, personality, clinical, cognitive
+# a bit complicated - multiple fields. 
 
-
-data.field <- data.filter %>% 
-  mutate(Social = ifelse(str_detect(Field, "Social Psychology"), 1, 0))%>% 
-  mutate(Moral_Psychology = ifelse(str_detect(Field, "Moral Psychology"), 1, 0))%>% 
-  mutate(Wisdom = ifelse(str_detect(Field, "Wisdom"), 1, 0))%>% 
-  mutate(Clinical = ifelse(str_detect(Field, "Clinical"), 1, 0))%>% 
-  mutate(Personality  = ifelse(str_detect(Field, "Personality"), 1, 0))%>% 
-  mutate(Education = ifelse(str_detect(Field, "Education"), 1, 0))%>% 
-  mutate(Developmental = ifelse(str_detect(Field, "Developmental"), 1, 0))%>% 
-  mutate(CogSci = ifelse(str_detect(Field, "Cognitive Science"), 1, 0))%>% 
-  mutate(Cognitive = ifelse(str_detect(Field, "Cognitive Psychology"), 1, 0))%>% 
-  mutate(Quantitative = ifelse(str_detect(Field, "Quantitative Psychology"), 1, 0))%>% 
-  mutate(Evolutionary = ifelse(str_detect(Field, "Evolutionary Psychology"), 1, 0))%>% 
-  mutate(Virtue = ifelse(str_detect(Field, "Virtue"), 1, 0))%>% 
-  mutate(Moral_philosophy = ifelse(str_detect(Field, "Moral philosophy"), 1, 0))
-
-prop.table(table(data.field$Social))
-prop.table(table(data.field$Moral_Psychology))
-prop.table(table(data.field$Wisdom))
-prop.table(table(data.field$Clinical))
-prop.table(table(data.field$Personality))
-prop.table(table(data.field$Education))
-prop.table(table(data.field$Developmental))
-prop.table(table(data.field$CogSci))
-prop.table(table(data.field$Cognitive))
-prop.table(table(data.field$Quantitative))
-prop.table(table(data.field$Evolutionary))
-prop.table(table(data.field$Moral_philosophy))
-prop.table(table(data.field$Virtue))
-
-  
-
+prop.table(table(data.filter$Social))
+prop.table(table(data.filter$Moral_Psychology))
+prop.table(table(data.filter$Wisdom))
+prop.table(table(data.filter$Clinical))
+prop.table(table(data.filter$Personality))
+prop.table(table(data.filter$Education))
+prop.table(table(data.filter$Developmental))
+prop.table(table(data.filter$CogSci))
+prop.table(table(data.filter$Cognitive))
+prop.table(table(data.filter$Quantitative))
+prop.table(table(data.filter$Evolutionary))
+prop.table(table(data.filter$Moral_philosophy))
+prop.table(table(data.filter$Virtue))
 
 ```
 
@@ -216,6 +228,42 @@ plot(xtabs(Proportion~Category+Group.F,WisMor.long))
 
 assocstats(xtabs(Proportion~Group.F+Category,WisMor.long))
 
+#GLMER ANALYSIS
+glmer.morals<-glmer(Proportion~Group.F*Category+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit") )
+summ(glmer.morals, digits=3)
+Anova(glmer.morals,type=3)
+
+emmeans(glmer.morals,pairwise ~Category|Group.F,  trans = "response")
+
+morals.estimates<-as.data.frame((emmeans(glmer.morals,pairwise ~Category|Group.F,  trans = "response"))$emmeans)
+pd <- position_dodge(0.7) # move them .07 to the left and right
+
+morals.estimates %>% 
+ ggplot(aes(x = Category, y = prob, colour = Group.F, fill=Group.F))+
+ geom_pointrange(aes(ymin=asymp.LCL, ymax=asymp.UCL), position=pd)+  theme_minimal() +
+theme(legend.position="top") +scale_color_d3()+scale_fill_d3()+  
+  labs(colour = "",fill="", x="",y="Proportion +/-95%CI") 
+
+emmeans(glmer.morals,pairwise ~Group.F|Category,  trans = "response")
+
+
+#glmer for those who have vs. dont' have prior research on wisdom
+
+glmer.morals.pWisdom<-glmer(Proportion~Group.F*Category*prior_research+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit") )
+Anova(glmer.morals.pWisdom,type=3)
+
+
+#prior research on moral psychology
+
+glmer.morals.pMorals<-glmer(Proportion~Group.F*Category*research_morality+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit") )
+Anova(glmer.morals.pWisdom,type=3)
+
+#prior research on cultural psychology
+
+glmer.morals.pCulture<-glmer(Proportion~Group.F*Category*research_culturalpsy+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit") )
+Anova(glmer.morals.pCulture,type=3)
+
+
 
 
 ```
@@ -233,14 +281,18 @@ plot(xtabs(Proportion~Position+Group.F+Category,WisMor.long))
 
 assocstats(xtabs(Proportion~Group.F+Category+Position,WisMor.long))
 
-ggplot(Wis.Mor.Summary.position, aes(x=Category, y=Percent, color=Group.F)) + 
-  geom_point(size=3) + 
+ggplot(Wis.Mor.Summary.position, aes(x=Category, y=Percent, color=Group.F, shape=Group.F)) + 
+  geom_point(size=3, alpha = 0.5) +
   geom_segment(aes(x=Category, 
                    xend=Category, 
                    y=0, 
                    yend=Percent)) + facet_wrap(vars(Position))+
   theme(axis.text.x = element_text(angle=65, vjust=0.6))+geom_hline(yintercept =50, linetype='dashed', color='black', 14)+theme(legend.position="top")+
-scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") 
+scale_color_npg()+ labs(colour = "Group",shape="Group",x="",y="% of the Sample") 
+
+glmer.morals.position<-glmer(Proportion~Group.F*Category*Position+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit") )
+Anova(glmer.morals.position,type=3)
+emmeans(glmer.morals.position,pairwise ~Position|Category|Group.F,  trans = "response")
 
 #By country
 
@@ -262,18 +314,227 @@ ggplot(Wis.Mor.Summary.country, aes(x=Category, y=Percent, color=Group.F)) +
                    yend=Percent)) + facet_wrap(vars(CountryCode))+
   theme(axis.text.x = element_text(angle=65, vjust=0.6))+geom_hline(yintercept =50, linetype='dashed', color='black', 14)+theme(legend.position="top")+
 scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") 
+
+glmer.morals.country<-glmer(Proportion~Group.F*Category*CountryCode+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit") )
+Anova(glmer.morals.country,type=3)
+emmeans(glmer.morals.country,pairwise ~CountryCode|Category|Group.F,  trans = "response")
+
+
 ```
+
+#by field
+```{r}
+
+#GLMER ANALYSIS
+glmer.morals.social<-glmer(Proportion~Group.F*Category*Social+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit"))
+Anova(glmer.morals.social,type=3) ##social psychologists did not differ from others
+morals.estimates.social<-as.data.frame((emmeans(glmer.morals.social,pairwise ~Category|Group.F|Social,  trans = "response"))$emmeans) %>% filter(Social==1 & !is.na(prob)) %>% select(Category, Group.F,prob:asymp.UCL) %>% mutate(Type="1. Social")
+
+glmer.morals.Personality<-glmer(Proportion~Group.F*Category*Personality+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit"))
+Anova(glmer.morals.Personality,type=3) #Personality doesn't sig moderate effect for other groups
+emmeans(glmer.morals.Personality,pairwise ~Personality|Category|Group.F,  trans = "response") # nothing
+morals.estimates.Personality<-as.data.frame((emmeans(glmer.morals.Personality,pairwise ~Category|Group.F|Personality,  trans = "response"))$emmeans) %>% filter(Personality==1 & !is.na(prob)) %>% select(Category, Group.F,prob:asymp.UCL) %>% mutate(Type="2. Personality")
+
+glmer.morals.wisdom<-glmer(Proportion~Group.F*Category*Wisdom+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit"))
+Anova(glmer.morals.wisdom,type=3) #sig difference between wisdom scholars and others
+emmeans(glmer.morals.wisdom,pairwise ~Wisdom|Category|Group.F,  trans = "response") #diff between groups fo scholars who study wisdom vs.who don't for morality is necessary for wisdom, and wisdom is sufficient for morality
+morals.estimates.wisdom<-as.data.frame((emmeans(glmer.morals.wisdom,pairwise ~Category|Group.F|Wisdom,  trans = "response"))$emmeans) %>% filter(Wisdom==1 & !is.na(prob)) %>% select(Category, Group.F,prob:asymp.UCL) %>% mutate(Type="5. Wisdom")
+
+glmer.morals.CogSci<-glmer(Proportion~Group.F*Category*CogSci+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit"))
+Anova(glmer.morals.CogSci,type=3) #cogsci don't differ from other groups
+emmeans(glmer.morals.CogSci,pairwise ~CogSci|Category|Group.F,  trans = "response") #nothing sig
+morals.estimates.CogSci<-as.data.frame((emmeans(glmer.morals.CogSci,pairwise ~Category|Group.F|CogSci,  trans = "response"))$emmeans) %>% filter(CogSci==1 & !is.na(prob)) %>% select(Category, Group.F,prob:asymp.UCL) %>% mutate(Type="6. CogSci")
+
+glmer.morals.Education<-glmer(Proportion~Group.F*Category*Education+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit"))
+Anova(glmer.morals.Education,type=3) #Education doesn't sig moderate effect for other groups
+emmeans(glmer.morals.Education,pairwise ~Education|Category|Group.F,  trans = "response") # except morality as a precursor for wisdom differs by education group
+morals.estimates.Education<-as.data.frame((emmeans(glmer.morals.Education,pairwise ~Category|Group.F|Education,  trans = "response"))$emmeans) %>% filter(Education==1 & !is.na(prob)) %>% select(Category, Group.F,prob:asymp.UCL) %>% mutate(Type="7. Education")
+
+glmer.morals.Developmental<-glmer(Proportion~Group.F*Category*Developmental+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit"))
+Anova(glmer.morals.Developmental,type=3) #Developmental doesn't sig moderate effect for other groups
+emmeans(glmer.morals.Developmental,pairwise ~Developmental|Category|Group.F,  trans = "response") # except morality as relevant for wisdom differs by Developmental group
+morals.estimates.Developmental<-as.data.frame((emmeans(glmer.morals.Developmental,pairwise ~Category|Group.F|Developmental,  trans = "response"))$emmeans) %>% filter(Developmental==1 & !is.na(prob)) %>% select(Category, Group.F,prob:asymp.UCL) %>% mutate(Type="8. Developmental")
+
+
+glmer.morals.Moral_Psychology<-glmer(Proportion~Group.F*Category*Moral_Psychology+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit"))
+Anova(glmer.morals.Moral_Psychology,type=3) #Moral_Psychology doesn't sig moderate effect for other groups
+emmeans(glmer.morals.Moral_Psychology,pairwise ~Moral_Psychology|Category|Group.F,  trans = "response") # nothing
+morals.estimates.Moral_Psychology<-as.data.frame((emmeans(glmer.morals.Moral_Psychology,pairwise ~Category|Group.F|Moral_Psychology,  trans = "response"))$emmeans) %>% filter(Moral_Psychology==1 & !is.na(prob)) %>% select(Category, Group.F,prob:asymp.UCL) %>% mutate(Type="3. Moral_Psychology")
+
+
+glmer.morals.Moral_philosophy<-glmer(Proportion~Group.F*Category*Moral_philosophy+ (1|ResponseId),data =WisMor.long, family=binomial(link="logit"))
+Anova(glmer.morals.Moral_philosophy,type=3) #Moral_philosophy doesn't sig moderate effect for other groups (marg trend)
+emmeans(glmer.morals.Moral_philosophy,pairwise ~Moral_philosophy|Category|Group.F,  trans = "response") # morality as necessary for wisdom / wisdom sufficient for morality differs by Moral_philosophy group
+morals.estimates.Moral_philosophy<-as.data.frame((emmeans(glmer.morals.Moral_philosophy,pairwise ~Category|Group.F|Moral_philosophy,  trans = "response"))$emmeans) %>% filter(Moral_philosophy==1 & !is.na(prob)) %>% select(Category, Group.F,prob:asymp.UCL) %>% mutate(Type="4. Moral_philosophy")
+
+morals.estimates.fields<-rbind(morals.estimates.social,morals.estimates.Personality,morals.estimates.Education,morals.estimates.Developmental,morals.estimates.CogSci,morals.estimates.Moral_Psychology,morals.estimates.Moral_philosophy,morals.estimates.wisdom)
+
+pd <- position_dodge(0.7) # move them .07 to the left and right
+
+morals.estimates.fields %>% 
+ ggplot(aes(x = Category, y = prob, colour = Type, fill=Type))+
+ geom_pointrange(aes(ymin=asymp.LCL, ymax=asymp.UCL), position=pd)+  theme_minimal() +
+theme(legend.position="top") +scale_color_d3()+scale_fill_d3()+ facet_wrap(vars(Group.F),ncol=1)+ 
+  labs(colour = "",fill="", x="",y="Proportion +/-95%CI") 
+
+
+
+morals.estimates.fields %>% 
+ ggplot(aes(x = Category, y = prob, colour = Type, fill=Type))+
+ geom_pointrange(aes(ymin=asymp.LCL, ymax=asymp.UCL), position=pd)+  theme_minimal() +
+theme(legend.position="top") +scale_color_d3()+scale_fill_d3()+ facet_wrap(vars(Group.F),ncol=2)+ 
+  labs(colour = "",fill="", x="",y="Proportion +/-95%CI") 
+
+
+#social psychologists vs. not
+Wis.Mor.Summary.social<- WisMor.long%>%
+  filter(!is.na(Social))%>%
+  group_by(Social,Group.F, Category) %>%
+  summarise(Prop = mean(Proportion)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Social,Group.F, Percent) 
+
+plot(xtabs(Proportion~Social+Group.F+Category,WisMor.long))
+assocstats(xtabs(Proportion~Group.F+Category+Social,WisMor.long))
+
+ggplot(Wis.Mor.Summary.social, aes(x=Category, y=Percent, color=Group.F)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + facet_wrap(vars(Social))+
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))+geom_hline(yintercept =50, linetype='dashed', color='black', 14)+theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") 
+
+#wisdom
+Wis.Mor.Summary.Wisdom<-WisMor.long %>%
+  filter(!is.na(Wisdom))%>%
+  group_by(Wisdom,Group.F, Category) %>%
+  summarise(Prop = mean(Proportion)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Wisdom,Group.F, Percent) 
+
+plot(xtabs(Proportion~Wisdom+Group.F+Category,WisMor.long))
+assocstats(xtabs(Proportion~Group.F+Category+Wisdom,WisMor.long))
+
+ggplot(Wis.Mor.Summary.Wisdom, aes(x=Category, y=Percent, color=Group.F)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + facet_wrap(vars(Wisdom))+
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))+geom_hline(yintercept =50, linetype='dashed', color='black', 14)+theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") 
+
+#cogsci
+Wis.Mor.Summary.CogSci<-WisMor.long %>%
+  filter(!is.na(CogSci))%>%
+  group_by(CogSci,Group.F, Category) %>%
+  summarise(Prop = mean(Proportion)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(CogSci,Group.F, Percent) 
+
+plot(xtabs(Proportion~CogSci+Group.F+Category,WisMor.long))
+assocstats(xtabs(Proportion~Group.F+Category+CogSci,WisMor.long))
+
+ggplot(Wis.Mor.Summary.CogSci, aes(x=Category, y=Percent, color=Group.F)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + facet_wrap(vars(CogSci))+
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))+geom_hline(yintercept =50, linetype='dashed', color='black', 14)+theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") 
+
+#education
+Wis.Mor.Summary.Education<-WisMor.long %>%
+  filter(!is.na(Education))%>%
+  group_by(Education,Group.F, Category) %>%
+  summarise(Prop = mean(Proportion)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Education,Group.F, Percent) 
+
+plot(xtabs(Proportion~Education+Group.F+Category,WisMor.long))
+assocstats(xtabs(Proportion~Group.F+Category+Education,WisMor.long))
+
+ggplot(Wis.Mor.Summary.Education, aes(x=Category, y=Percent, color=Group.F)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + facet_wrap(vars(Education))+
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))+geom_hline(yintercept =50, linetype='dashed', color='black', 14)+theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") 
+
+
+#moral psych
+Wis.Mor.Summary.Moral_Psychology<-WisMor.long %>%
+  filter(!is.na(Moral_Psychology))%>%
+  group_by(Moral_Psychology,Group.F, Category) %>%
+  summarise(Prop = mean(Proportion)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Moral_Psychology,Group.F, Percent) 
+
+plot(xtabs(Proportion~Moral_Psychology+Group.F+Category,WisMor.long))
+assocstats(xtabs(Proportion~Group.F+Category+Moral_Psychology,WisMor.long))
+
+ggplot(Wis.Mor.Summary.Moral_Psychology, aes(x=Category, y=Percent, color=Group.F)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + facet_wrap(vars(Moral_Psychology))+
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))+geom_hline(yintercept =50, linetype='dashed', color='black', 14)+theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") 
+
+
+#moral phil
+Wis.Mor.Summary.Moral_philosophy<-WisMor.long %>%
+  filter(!is.na(Moral_philosophy))%>%
+  group_by(Moral_philosophy,Group.F, Category) %>%
+  summarise(Prop = mean(Proportion)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Moral_philosophy,Group.F, Percent) 
+
+plot(xtabs(Proportion~Moral_philosophy+Group.F+Category,WisMor.long))
+assocstats(xtabs(Proportion~Group.F+Category+Moral_philosophy,WisMor.long))
+
+ggplot(Wis.Mor.Summary.Moral_philosophy, aes(x=Category, y=Percent, color=Group.F)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + facet_wrap(vars(Moral_philosophy))+
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))+geom_hline(yintercept =50, linetype='dashed', color='black', 14)+theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") 
+
+#developmental psych
+Wis.Mor.Summary.Developmental<-WisMor.long %>%
+  filter(!is.na(Developmental))%>%
+  group_by(Developmental,Group.F, Category) %>%
+  summarise(Prop = mean(Proportion)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Developmental,Group.F, Percent) 
+
+plot(xtabs(Proportion~Developmental+Group.F+Category,WisMor.long))
+assocstats(xtabs(Proportion~Group.F+Category+Developmental,WisMor.long))
+
+ggplot(Wis.Mor.Summary.Developmental, aes(x=Category, y=Percent, color=Group.F)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + facet_wrap(vars(Developmental))+
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))+geom_hline(yintercept =50, linetype='dashed', color='black', 14)+theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") 
+
+
+```
+ 
 
 #### Open-ended responses
 
 ```{r}
 
-Moral.open <- data %>% 
+Moral.open <- WisMor %>% 
     filter(!is.na(FRMW_FINAL)) %>%
   mutate(Fixed=ifelse(FM_FINAL==1,1,0), Malleable=ifelse(FM_FINAL==2,1,0)) %>% 
-    select(CountryCode,Progress, Duration,position2,ResponseId,field,prior_research:education,moral_wis_comments,morality_wis_analogy,wis_psych_char,
-         FRMW_FINAL,  FRWM_FINAL, FRJF_FINAL,TRMW_FINAL,TRWM_FINAL,TRHOC_FINAL,PR_FINAL,DR_FINAL,PROCESS.MECH_FINAL,PROCESS.LIFE_FINAL,CONSTRUCT_FINAL,Fixed,Malleable) %>% 
-    rename(Position = position2, Education = education, Field = field)
+    select(CountryCode,Progress, Duration,Position,ResponseId,Field,prior_research:education,moral_wis_comments,morality_wis_analogy,wis_psych_char,
+         FRMW_FINAL,  FRWM_FINAL, FRJF_FINAL,TRMW_FINAL,TRWM_FINAL,TRHOC_FINAL,PR_FINAL,DR_FINAL,PROCESS.MECH_FINAL,PROCESS.LIFE_FINAL,CONSTRUCT_FINAL,Fixed,Malleable, Social,Personality,Moral_Psychology,Moral_philosophy,Education,CogSci, Developmental, M2W_Relevant:W2M_Unrelated) 
+
 
 pd <- position_dodge(0.7) # move them .07 to the left and right
 labels<-c(
@@ -289,9 +550,24 @@ labels<-c(
   PROCESS.LIFE_FINAL = "Theme:\nLife Process",
   CONSTRUCT_FINAL = "Theme:\nConstructivism")
 
+labels.N<-c(
+  FRMW_FINAL = "1. Functional:\nMorals=>Wisdom",
+  FRWM_FINAL = "2. Functional:\nWisdom=>Morals",
+  FRJF_FINAL = "3. Functional:\nJoint Function",
+  TRMW_FINAL = "4. Taxonomic:\nMorals part of Wisdom",
+  TRWM_FINAL = "5. Taxonomic:\nWisdom part of Morals",
+  TRHOC_FINAL = "6. Taxonomic:\nHigher order cat",
+  PR_FINAL ="7. Probabilistic",
+  DR_FINAL = "8. Deterministic",
+  PROCESS.MECH_FINAL = "9. Theme:\nWisdom as Mechanism",
+  PROCESS.LIFE_FINAL = "10. Theme:\nLife Process",
+  CONSTRUCT_FINAL = "11. Theme:\nConstructivism")
+
 #how many responses?
 length(Moral.open$FRMW_FINAL)
 Moral.open.long<-Moral.open %>% pivot_longer(FRMW_FINAL:Malleable,names_to="Category",values_to="Score")
+
+
 
 Moral.open.Summary<-Moral.open.long %>%
   group_by(Category) %>%
@@ -311,6 +587,131 @@ Moral.open.Summary %>% arrange(Percent) %>%
                size=0.1) + theme_minimal()+  # Draw dashed lines
     coord_flip()+scale_color_aaas()+scale_x_discrete(labels=labels, name="")
 
+
+lmer.open.morals<-glmer(Score~Category+ (1|ResponseId),data =Moral.open.long, family=binomial(link="logit") )
+Anova(lmer.open.morals,type=3)
+
+emmeans(lmer.open.morals,pairwise ~Category,  trans = "response")
+
+morals.open.estimates<-as.data.frame((emmeans(lmer.open.morals,pairwise ~Category,  trans = "response"))$emmeans)
+pd <- position_dodge(0.7) # move them .07 to the left and right
+
+morals.open.estimates %>% 
+ ggplot(aes(x = Category, y = prob, colour = Category, fill=Category))+
+ geom_pointrange(aes(ymin=asymp.LCL, ymax=asymp.UCL), position=pd)+  theme_minimal() +
+theme(legend.position="none") +scale_color_d3()+scale_fill_d3()+  
+  labs(colour = "",fill="", x="",y="Proportion +/-95%CI") +scale_x_discrete(labels=labels, name="")
+
+
+```
+
+# what arguments did people make when they indicated that morality was relevant/necessary for wisdom and vice versa?
+We can combine open-ended and forced choice responses from earlier to get a better insight into their judgments
+
+```{r}
+#compare those who indicated that morality is necessary for wisdom to those who did not select it.
+
+Moral.open.Summary.Mness<-Moral.open.long %>%
+  group_by(Category,M2W_Necessary) %>%
+  summarise(Prop = mean(Score, na.rm=T)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Percent) 
+
+ggplot(Moral.open.Summary.Mness, aes(x=Category, y=Percent, color=as.factor(M2W_Necessary))) + 
+  geom_point(size=3, position=pd) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Morals Necessary\nfor Wisdom",x="",y="% of the Sample") +scale_x_discrete(labels=labels, name="")+coord_flip()
+
+#compare those who indicated that wisdom is necessary for morality
+
+Moral.open.Summary.Wness<-Moral.open.long %>%
+  group_by(Category,W2M_Necessary) %>%
+  summarise(Prop = mean(Score, na.rm=T)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Percent) 
+
+ggplot(Moral.open.Summary.Wness, aes(x=Category, y=Percent, color=as.factor(W2M_Necessary))) + 
+  geom_point(size=3, position=pd) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Wisdom Necessary\nfor Morality",x="",y="% of the Sample") +scale_x_discrete(labels=labels, name="")+coord_flip()
+
+#compare those who indicated that morality is RELEVANT for wisdom to those who did not select it.
+
+Moral.open.Summary.Mrel<-Moral.open.long %>%
+  group_by(Category,M2W_Relevant) %>%
+  summarise(Prop = mean(Score, na.rm=T)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Percent) 
+
+ggplot(Moral.open.Summary.Mrel, aes(x=Category, y=Percent, color=as.factor(M2W_Relevant))) + 
+  geom_point(size=3, position=pd) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Morals Relevant\nfor Wisdom",x="",y="% of the Sample") +scale_x_discrete(labels=labels, name="")+coord_flip()
+
+
+```
+
+
+# by field
+```{r}
+#developmental
+Moral.open.Summary.Developmental<-Moral.open.long %>%
+    filter(!is.na(Developmental))%>%
+  group_by(Developmental,Category) %>%
+  summarise(Prop = mean(Score, na.rm=T)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Developmental,Percent) %>% 
+  mutate(Dev.factor=ifelse(Developmental==1,"Developmental","Not developmental"))
+
+ggplot(Moral.open.Summary.Developmental, aes(x=Category, y=Percent, color=Dev.factor)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + 
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))+theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") +scale_x_discrete(labels=labels, name="")
+
+#social
+Moral.open.Summary.Social<-Moral.open.long %>%
+    filter(!is.na(Social))%>%
+  group_by(Social,Category) %>%
+  summarise(Prop = mean(Score, na.rm=T)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Social,Percent) %>% 
+  mutate(Soc.factor=ifelse(Social==1,"Social","Not Social"))
+
+ggplot(Moral.open.Summary.Social, aes(x=Category, y=Percent, color=Soc.factor)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + 
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))+theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") +scale_x_discrete(labels=labels, name="")
+
+#personality
+#social
+Moral.open.Summary.Personality<-Moral.open.long %>%
+    filter(!is.na(Personality))%>%
+  group_by(Personality,Category) %>%
+  summarise(Prop = mean(Score, na.rm=T)) %>%
+  mutate(Percent = Prop*100) %>% ungroup() %>%  arrange(Personality,Percent) %>% 
+  mutate(Pers.factor=ifelse(Personality==1,"Personality","Not Personality"))
+
+ggplot(Moral.open.Summary.Personality, aes(x=Category, y=Percent, color=Pers.factor)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Category, 
+                   xend=Category, 
+                   y=0, 
+                   yend=Percent)) + 
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))+theme(legend.position="top")+
+scale_color_aaas()+ labs(colour = "Group",x="",y="% of the Sample") +scale_x_discrete(labels=labels, name="")
+
 ```
 
 #### PArt 1.5 moral intention vs. action and wisdom
@@ -320,14 +721,14 @@ Moral.open.Summary %>% arrange(Percent) %>%
 Moral.int <- data %>% 
     filter(!is.na(Intention_FINAL)) %>%
     select(CountryCode,Progress, Duration,position2,ResponseId,field,prior_research:education,moral_wis_comments,morality_wis_analogy,wis_psych_char,
-         FRMW_FINAL,  FRWM_FINAL, FRJF_FINAL,TRMW_FINAL,TRWM_FINAL,TRHOC_FINAL,PR_FINAL,DR_FINAL,PROCESS.MECH_FINAL,PROCESS.LIFE_FINAL,CONSTRUCT_FINAL,Intention_FINAL, Action_FINAL, MDW_FINAL) %>% 
-    rename(Position = position2, Education = education, Field = field)
+         FRMW_FINAL,  FRWM_FINAL, FRJF_FINAL,TRMW_FINAL,TRWM_FINAL,TRHOC_FINAL,PR_FINAL,DR_FINAL,PROCESS.MECH_FINAL,PROCESS.LIFE_FINAL,CONSTRUCT_FINAL,Intention_FINAL, Action_FINAL, MDW_FINAL,Social,Wisdom,Moral_Psychology,Moral_philosophy,Education,CogSci, Developmental) %>% 
+    rename(Position = position2, Field = field)
 
 pd <- position_dodge(0.7) # move them .07 to the left and right
 labels.INT<-c(
   Intention_FINAL = "Wisdom Depends\non Moral Intentions",
   Action_FINAL = "Wisdom Depends\non Moral Actions",
-  MDW_FINAL = "Morality Depands on WIsdom")
+  MDW_FINAL = "Morality Depends on WIsdom")
 
 #how many responses?
 length(Moral.int$Intention_FINAL)
@@ -351,6 +752,30 @@ Moral.int.Summary %>% arrange(Percent) %>%
                size=0.1) + theme_minimal()+  # Draw dashed lines
     coord_flip()+scale_color_aaas()+scale_x_discrete(labels=labels.INT, name="")
 
+
+lmer.open.morals.int.act<-glmer(Score~Category+ (1|ResponseId),data =Moral.int.long, family=binomial(link="logit") )
+Anova(lmer.open.morals.int.act,type=3)
+
+emmeans(lmer.open.morals.int.act,pairwise ~Category,  trans = "response")
+
+morals.open.int.act.estimates<-as.data.frame((emmeans(lmer.open.morals.int.act,pairwise ~Category,  trans = "response"))$emmeans)
+pd <- position_dodge(0.7) # move them .07 to the left and right
+
+morals.open.int.act.estimates %>% 
+ ggplot(aes(x = Category, y = prob, colour = Category, fill=Category))+
+ geom_pointrange(aes(ymin=asymp.LCL, ymax=asymp.UCL), position=pd)+  theme_minimal() +
+theme(legend.position="none") +scale_color_d3()+scale_fill_d3()+  
+  labs(colour = "",fill="", x="",y="Likelihood +/-95%CI") +scale_x_discrete(labels=labels.INT, name="")
+
+#does it vary by wisdom expertise
+
+lmer.open.morals.int.act.wis<-glmer(Score~Category+ Wisdom+(1|ResponseId),data =Moral.int.long, family=binomial(link="logit") )
+emmeans(lmer.open.morals.int.act.wis,pairwise ~Wisdom|Category,  trans = "response") #no sig differences
+
+#does it vary by moral phil expertise
+
+lmer.open.morals.int.act.moralphil<-glmer(Score~Category+ Moral_philosophy+(1|ResponseId),data =Moral.int.long, family=binomial(link="logit") )
+emmeans(lmer.open.morals.int.act.moralphil,pairwise ~Moral_philosophy|Category,  trans = "response") #no sig differences
 
 
 ```
@@ -379,9 +804,9 @@ Univ <- data %>%
          !is.na(universals_sorting_3_GROUP)) %>% 
   filter(ResponseId !="R_2XdqUYSGdFotixV")  %>% 
   select(country,ResponseId,field,prior_research:position_8_TEXT,
-         universals_sorting_0_GROUP:universals_sorting_3_17_RANK)
+         universals_sorting_0_GROUP:universals_sorting_3_17_RANK,,Social,Wisdom,Moral_Psychology,Moral_philosophy,Education,CogSci, Developmental, Education)
 Univ <- Univ %>% mutate(across(universals_sorting_0_1_RANK:universals_sorting_3_17_RANK, ~ ifelse(is.na(.x), 0, .x)))
-univ2 <- Univ %>% select(ResponseId,universals_sorting_0_1_RANK:universals_sorting_3_17_RANK)%>%
+univ2 <- Univ %>% select(ResponseId,universals_sorting_0_1_RANK:universals_sorting_3_17_RANK,Social,Wisdom,Moral_Psychology,Moral_philosophy,Education,CogSci, Developmental, Education )%>%
   pivot_longer(names_to = "Group", values_to = "Rank",   universals_sorting_0_1_RANK:universals_sorting_3_17_RANK) %>% 
   mutate(Group2 = ifelse(str_detect(Group,"universals_sorting_0"), "Non-Universals", Group)) %>%
   mutate(Group2 = ifelse(str_detect(Group,"universals_sorting_1"), "Existential Universal", Group2)) %>% 
@@ -441,6 +866,21 @@ universal.total.Summary<-univ2 %>%
     coord_flip()+scale_color_aaas()+scale_x_discrete(labels=labelsItems, name="")
 
 print(universal.total.Summary)
+
+lmer.select.categories<-lmer(Rank~Item*Group2+ (1|ResponseId),data =univ2 )
+Anova(lmer.select.categories,type=3)
+
+emmeans(lmer.select.categories,pairwise ~Item|Group2)
+
+estimate.lmer.select.categories<-as.data.frame((emmeans(lmer.select.categories,pairwise ~Item|Group2))$emmeans)
+pd <- position_dodge(0.7) # move them .07 to the left and right
+
+estimate.lmer.select.categories %>% 
+ ggplot(aes(x = Item, y = emmean, colour = Group2        , fill=Group2        ))+
+ geom_pointrange(aes(ymin=asymp.LCL, ymax=asymp.UCL), position=pd)+  theme_minimal() +
+theme(legend.position="top") +scale_color_d3()+scale_fill_d3()+  facet_wrap(vars(Group2))+coord_flip()+
+  labs(colour = "",fill="", x="",y="Likelihood +/-95%CI") +scale_x_discrete(labels=labelsItems, name="")
+
 
 #by domain
 
